@@ -1,41 +1,98 @@
 package org.example.project
 
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.datetime.Clock
 
-class NoteViewModel : ViewModel() {
-    private val _notes = MutableStateFlow<List<Note>>(
-        listOf(
-            Note("1", "Tugas Mobile", "Mengerjakan tugas navigasi compose."),
-            Note("2", "Belanja", "Beli keperluan dapur dan buah-buahan."),
-            Note("3", "Olahraga", "Jogging pagi di ITERA jam 6.", isFavorite = true)
+data class NotesUiState(
+    val isLoading: Boolean = true,
+    val notes: List<Note> = emptyList(),
+    val searchQuery: String = "",
+    val sortOrder: SortOrder = SortOrder.NEWEST
+)
+
+class NoteViewModel(
+    private val noteDataSource: NoteDataSource,
+    private val settingsDataSource: SettingsDataSource
+) : ViewModel() {
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+
+    val uiState: StateFlow<NotesUiState> = combine(
+        noteDataSource.getAllNotes(),
+        _searchQuery,
+        settingsDataSource.sortOrder
+    ) { notes, query, sortOrder ->
+        val filteredNotes = if (query.isBlank()) {
+            notes
+        } else {
+            notes.filter { 
+                it.title.contains(query, ignoreCase = true) || 
+                it.content.contains(query, ignoreCase = true) 
+            }
+        }
+
+        val sortedNotes = when (sortOrder) {
+            SortOrder.NEWEST -> filteredNotes.sortedByDescending { it.createdAt }
+            SortOrder.OLDEST -> filteredNotes.sortedBy { it.createdAt }
+            SortOrder.TITLE -> filteredNotes.sortedBy { it.title }
+        }
+
+        NotesUiState(
+            isLoading = false,
+            notes = sortedNotes,
+            searchQuery = query,
+            sortOrder = sortOrder
         )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = NotesUiState()
     )
-    val notes: StateFlow<List<Note>> = _notes.asStateFlow()
+
+    fun onSearchQueryChange(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun onSortOrderChange(order: SortOrder) {
+        viewModelScope.launch {
+            settingsDataSource.setSortOrder(order)
+        }
+    }
 
     fun addNote(title: String, content: String) {
-        val newNote = Note(
-            id = (notes.value.size + 1).toString(),
-            title = title,
-            content = content
-        )
-        _notes.update { it + newNote }
-    }
-
-    fun updateNote(id: String, title: String, content: String) {
-        _notes.update { list ->
-            list.map { if (it.id == id) it.copy(title = title, content = content) else it }
+        viewModelScope.launch {
+            val note = Note(
+                title = title,
+                content = content,
+                createdAt = Clock.System.now().toEpochMilliseconds()
+            )
+            noteDataSource.insertNote(note)
         }
     }
 
-    fun toggleFavorite(id: String) {
-        _notes.update { list ->
-            list.map { if (it.id == id) it.copy(isFavorite = !it.isFavorite) else it }
+    fun updateNote(id: Long, title: String, content: String) {
+        viewModelScope.launch {
+            noteDataSource.updateNote(id, title, content)
         }
     }
 
-    fun getNoteById(id: String): Note? = notes.value.find { it.id == id }
+    fun deleteNote(id: Long) {
+        viewModelScope.launch {
+            noteDataSource.deleteNote(id)
+        }
+    }
+
+    fun toggleFavorite(note: Note) {
+        viewModelScope.launch {
+            noteDataSource.toggleFavorite(note.id!!, !note.isFavorite)
+        }
+    }
+
+    suspend fun getNoteById(id: Long): Note? {
+        return noteDataSource.getNoteById(id)
+    }
 }

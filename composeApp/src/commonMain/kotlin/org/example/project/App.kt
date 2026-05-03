@@ -12,9 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +40,7 @@ import kotlinproject.composeapp.generated.resources.Flowers
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
     object Notes : Screen("notes", "Notes", Icons.Default.Description)
     object Favorites : Screen("favorites", "Favorites", Icons.Default.Favorite)
+    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
     object Profile : Screen("profile", "Profile", Icons.Default.Person)
     object NoteDetail : Screen("note_detail/{noteId}", "Detail")
     object AddNote : Screen("add_note", "Add Note")
@@ -49,11 +48,16 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
 }
 
 @Composable
-fun App() {
+fun App(
+    noteDataSource: NoteDataSource,
+    settingsDataSource: SettingsDataSource
+) {
     val navController = rememberNavController()
-    val noteViewModel: NoteViewModel = viewModel { NoteViewModel() }
-    val profileViewModel: ProfileViewModel = viewModel { ProfileViewModel() }
+    val noteViewModel: NoteViewModel = viewModel { NoteViewModel(noteDataSource, settingsDataSource) }
+    val profileViewModel: ProfileViewModel = viewModel { ProfileViewModel(settingsDataSource) }
+    
     val profileUiState by profileViewModel.uiState.collectAsState()
+    val notesUiState by noteViewModel.uiState.collectAsState()
 
     val colorScheme = if (profileUiState.isDarkMode) {
         darkColorScheme(primary = Color(0xFFD0BCFF), background = Color(0xFF1C1B1F), surface = Color(0xFF1C1B1F))
@@ -67,9 +71,9 @@ fun App() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 
-                if (currentRoute in listOf(Screen.Notes.route, Screen.Favorites.route, Screen.Profile.route)) {
+                if (currentRoute in listOf(Screen.Notes.route, Screen.Favorites.route, Screen.Profile.route, Screen.Settings.route)) {
                     NavigationBar {
-                        val items = listOf(Screen.Notes, Screen.Favorites, Screen.Profile)
+                        val items = listOf(Screen.Notes, Screen.Favorites, Screen.Profile, Screen.Settings)
                         items.forEach { screen ->
                             NavigationBarItem(
                                 icon = { Icon(screen.icon!!, contentDescription = screen.title) },
@@ -114,11 +118,14 @@ fun App() {
                 composable(Screen.Profile.route) {
                     ProfileTabScreen(profileViewModel)
                 }
+                composable(Screen.Settings.route) {
+                    SettingsScreen(noteViewModel, profileViewModel)
+                }
                 composable(
                     route = Screen.NoteDetail.route,
-                    arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+                    arguments = listOf(navArgument("noteId") { type = NavType.LongType })
                 ) { backStackEntry ->
-                    val noteId = backStackEntry.arguments?.getString("noteId")
+                    val noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L
                     NoteDetailScreen(noteId, noteViewModel, 
                         onBack = { navController.popBackStack() },
                         onEdit = { id -> navController.navigate("edit_note/$id") }
@@ -129,9 +136,9 @@ fun App() {
                 }
                 composable(
                     route = Screen.EditNote.route,
-                    arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+                    arguments = listOf(navArgument("noteId") { type = NavType.LongType })
                 ) { backStackEntry ->
-                    val noteId = backStackEntry.arguments?.getString("noteId")
+                    val noteId = backStackEntry.arguments?.getLong("noteId") ?: 0L
                     EditNoteScreen(noteId, noteViewModel, onBack = { navController.popBackStack() })
                 }
             }
@@ -139,30 +146,59 @@ fun App() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotesScreen(viewModel: NoteViewModel, onNoteClick: (String) -> Unit) {
-    val notes by viewModel.notes.collectAsState()
+fun NotesScreen(viewModel: NoteViewModel, onNoteClick: (Long) -> Unit) {
+    val uiState by viewModel.uiState.collectAsState()
+    
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("My Notes", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        OutlinedTextField(
+            value = uiState.searchQuery,
+            onValueChange = { viewModel.onSearchQueryChange(it) },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Search notes...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            shape = RoundedCornerShape(12.dp)
+        )
+        
         Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn {
-            items(notes) { note ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNoteClick(note.id) }
-                ) {
-                    ListItem(
-                        headlineContent = { Text(note.title) },
-                        supportingContent = { Text(note.content, maxLines = 1) },
-                        trailingContent = {
-                            IconButton(onClick = { viewModel.toggleFavorite(note.id) }) {
-                                Icon(
-                                    if (note.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    contentDescription = null,
-                                    tint = if (note.isFavorite) Color.Red else Color.Gray
-                                )
+        
+        if (uiState.isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (uiState.notes.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (uiState.searchQuery.isEmpty()) "No notes yet" else "No notes found")
+            }
+        } else {
+            LazyColumn {
+                items(uiState.notes, key = { it.id!! }) { note ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNoteClick(note.id!!) }
+                    ) {
+                        ListItem(
+                            headlineContent = { Text(note.title) },
+                            supportingContent = { Text(note.content, maxLines = 1) },
+                            trailingContent = {
+                                Row {
+                                    IconButton(onClick = { viewModel.toggleFavorite(note) }) {
+                                        Icon(
+                                            if (note.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = null,
+                                            tint = if (note.isFavorite) Color.Red else Color.Gray
+                                        )
+                                    }
+                                    IconButton(onClick = { viewModel.deleteNote(note.id!!) }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray)
+                                    }
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -170,9 +206,9 @@ fun NotesScreen(viewModel: NoteViewModel, onNoteClick: (String) -> Unit) {
 }
 
 @Composable
-fun FavoritesScreen(viewModel: NoteViewModel, onNoteClick: (String) -> Unit) {
-    val notes by viewModel.notes.collectAsState()
-    val favoriteNotes = notes.filter { it.isFavorite }
+fun FavoritesScreen(viewModel: NoteViewModel, onNoteClick: (Long) -> Unit) {
+    val uiState by viewModel.uiState.collectAsState()
+    val favoriteNotes = uiState.notes.filter { it.isFavorite }
     
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Favorites", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -183,11 +219,14 @@ fun FavoritesScreen(viewModel: NoteViewModel, onNoteClick: (String) -> Unit) {
             }
         } else {
             LazyColumn {
-                items(favoriteNotes) { note ->
+                items(favoriteNotes, key = { it.id!! }) { note ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNoteClick(note.id) }
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onNoteClick(note.id!!) }
                     ) {
-                        ListItem(headlineContent = { Text(note.title) })
+                        ListItem(
+                            headlineContent = { Text(note.title) },
+                            supportingContent = { Text(note.content, maxLines = 1) }
+                        )
                     }
                 }
             }
@@ -195,10 +234,47 @@ fun FavoritesScreen(viewModel: NoteViewModel, onNoteClick: (String) -> Unit) {
     }
 }
 
+@Composable
+fun SettingsScreen(noteViewModel: NoteViewModel, profileViewModel: ProfileViewModel) {
+    val noteUiState by noteViewModel.uiState.collectAsState()
+    val profileUiState by profileViewModel.uiState.collectAsState()
+    
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text("Appearance", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        ListItem(
+            headlineContent = { Text("Dark Mode") },
+            trailingContent = {
+                Switch(checked = profileUiState.isDarkMode, onCheckedChange = { profileViewModel.toggleDarkMode(it) })
+            }
+        )
+        
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text("Sort Order", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        SortOrder.values().forEach { order ->
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { noteViewModel.onSortOrderChange(order) }.padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = noteUiState.sortOrder == order, onClick = { noteViewModel.onSortOrderChange(order) })
+                Text(order.name.lowercase().capitalize(), modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteDetailScreen(noteId: String?, viewModel: NoteViewModel, onBack: () -> Unit, onEdit: (String) -> Unit) {
-    val note = noteId?.let { viewModel.getNoteById(it) }
+fun NoteDetailScreen(noteId: Long, viewModel: NoteViewModel, onBack: () -> Unit, onEdit: (Long) -> Unit) {
+    var note by remember { mutableStateOf<Note?>(null) }
+    
+    LaunchedEffect(noteId) {
+        note = viewModel.getNoteById(noteId)
+    }
     
     Scaffold(
         topBar = {
@@ -209,7 +285,7 @@ fun NoteDetailScreen(noteId: String?, viewModel: NoteViewModel, onBack: () -> Un
                 },
                 actions = {
                     note?.let {
-                        IconButton(onClick = { onEdit(it.id) }) { Icon(Icons.Default.Edit, null) }
+                        IconButton(onClick = { onEdit(it.id!!) }) { Icon(Icons.Default.Edit, null) }
                     }
                 }
             )
@@ -217,11 +293,13 @@ fun NoteDetailScreen(noteId: String?, viewModel: NoteViewModel, onBack: () -> Un
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp)) {
             if (note != null) {
-                Text(note.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(note!!.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(note.content, style = MaterialTheme.typography.bodyLarge)
+                Text(note!!.content, style = MaterialTheme.typography.bodyLarge)
             } else {
-                Text("Note not found")
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Note not found")
+                }
             }
         }
     }
@@ -248,10 +326,13 @@ fun AddNoteScreen(viewModel: NoteViewModel, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
-                    viewModel.addNote(title, content)
-                    onBack()
+                    if (title.isNotBlank()) {
+                        viewModel.addNote(title, content)
+                        onBack()
+                    }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = title.isNotBlank()
             ) {
                 Text("Save Note")
             }
@@ -261,10 +342,18 @@ fun AddNoteScreen(viewModel: NoteViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditNoteScreen(noteId: String?, viewModel: NoteViewModel, onBack: () -> Unit) {
-    val note = noteId?.let { viewModel.getNoteById(it) }
-    var title by remember { mutableStateOf(note?.title ?: "") }
-    var content by remember { mutableStateOf(note?.content ?: "") }
+fun EditNoteScreen(noteId: Long, viewModel: NoteViewModel, onBack: () -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(noteId) {
+        viewModel.getNoteById(noteId)?.let {
+            title = it.title
+            content = it.content
+        }
+        isLoading = false
+    }
 
     Scaffold(
         topBar = {
@@ -274,19 +363,28 @@ fun EditNoteScreen(noteId: String?, viewModel: NoteViewModel, onBack: () -> Unit
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text("Content") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    noteId?.let { viewModel.updateNote(it, title, content) }
-                    onBack()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Update Note")
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text("Content") }, modifier = Modifier.fillMaxWidth(), minLines = 5)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        if (title.isNotBlank()) {
+                            viewModel.updateNote(noteId, title, content)
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = title.isNotBlank()
+                ) {
+                    Text("Update Note")
+                }
             }
         }
     }
@@ -336,14 +434,6 @@ fun ProfileScreen(
                     Text("Edit Profile", fontWeight = FontWeight.Medium)
                 }
             }
-        }
-        Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(20.dp)).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(imageVector = if (uiState.isDarkMode) Icons.Default.Brightness7 else Icons.Default.Brightness4, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.width(4.dp))
-            Switch(checked = uiState.isDarkMode, onCheckedChange = onToggleDarkMode)
         }
     }
 }
@@ -395,3 +485,5 @@ fun EditProfileForm(initialName: String, initialBio: String, onSave: (String, St
         }
     }
 }
+
+fun String.capitalize() = replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

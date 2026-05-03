@@ -1,70 +1,62 @@
-# Profile App - Kotlin Multiplatform (Tugas Pengembangan Aplikasi Mobile)
+# Note App - Kotlin Multiplatform (Tugas SQLDelight)
 
-Aplikasi profil modern yang dikembangkan menggunakan **Compose Multiplatform** dengan penerapan arsitektur **MVVM (Model-View-ViewModel)**. Aplikasi ini mendukung fitur kustomisasi profil, tema adaptif (Dark/Light mode), dan pengelolaan state yang reaktif.
+Aplikasi manajemen catatan (Notes) modern yang dibangun menggunakan **Compose Multiplatform**. Proyek ini mengimplementasikan sistem penyimpanan data lokal yang efisien menggunakan **SQLDelight**, manajemen preferensi pengguna dengan **Jetpack DataStore**, serta penanganan status UI yang komprehensif dan mendukung prinsip *offline-first*.
 
 ## Fitur Utama
 
-### 1. Tampilan Profil Minimalis
-Menampilkan informasi personal secara bersih menggunakan komponen Material 3:
-- Foto profil circular (melingkar).
-- Nama dan deskripsi pekerjaan/pendidikan.
-- Detail kontak (Email, Phone, Location) dengan ikon yang elegan.
+### 1. Operasi CRUD (SQLDelight)
+Implementasi penuh penyimpanan data lokal menggunakan SQLDelight yang bersifat *type-safe*:
+- **Create**: Menambahkan catatan baru dengan judul dan isi konten.
+- **Read**: Menampilkan daftar catatan secara real-time dari database SQLite.
+- **Update**: Mengedit judul, isi catatan, atau menandai catatan sebagai favorit.
+- **Delete**: Menghapus catatan secara permanen dari penyimpanan lokal.
 
-### 2. Fitur Edit Profile (State Hoisting)
-Pengguna dapat mengubah Nama dan Biografi melalui form interaktif:
-- Menggunakan `TextField` dengan *state hoisting* untuk menangani input sementara.
-- Tombol **Save** untuk memperbarui data ke sistem secara permanen.
-- Tombol **Cancel** untuk membatalkan perubahan tanpa memperbarui state utama.
+### 2. Fitur Pencarian (Search Functionality)
+Dilengkapi dengan fitur pencarian yang responsif. Pengguna dapat mencari catatan tertentu berdasarkan kata kunci pada judul atau isi konten secara instan (real-time) melalui query SQL yang dioptimalkan.
 
-### 3. Dark Mode Toggle
-Implementasi tema dinamis yang memungkinkan pengguna beralih antara tema terang dan gelap secara instan melalui switch di pojok layar. Seluruh komponen UI akan menyesuaikan skema warna (background, surface, text) secara otomatis.
+### 3. Pengaturan (Settings) dengan DataStore
+Mengelola preferensi pengguna secara persisten menggunakan Jetpack DataStore:
+- **Theme Selection**: Beralih antara Tema Terang (Light) dan Tema Gelap (Dark).
+- **Sort Order**: Mengatur urutan tampilan catatan (berdasarkan waktu terbaru atau terlama) yang tersimpan secara permanen di DataStore.
 
----
-
-## Implementasi MVVM Pattern
-
-Aplikasi ini memisahkan logika bisnis dari tampilan menggunakan pola arsitektur MVVM:
-
-### 1. Model (Data Class / UI State)
-Terletak di `ProfileUiState`, mendefinisikan seluruh status data yang dibutuhkan oleh UI dalam satu objek tunggal (Single Source of Truth).
-```kotlin
-data class ProfileUiState(
-    val name: String,
-    val bio: String,
-    val isDarkMode: Boolean,
-    val isEditing: Boolean,
-    // ... detail lainnya
-)
-```
-
-### 2. ViewModel (`ProfileViewModel`)
-Bertindak sebagai perantara yang mengelola logika dan aliran data:
-- Menggunakan **`StateFlow`** dari Kotlin Coroutines untuk memancarkan perubahan status secara reaktif.
-- Menyediakan fungsi-fungsi aksi seperti `toggleDarkMode()`, `setEditing()`, dan `updateProfile()`.
-- Menjamin data tetap konsisten meskipun terjadi perubahan konfigurasi.
-
-### 3. View (Jetpack Compose UI)
-Layer tampilan yang hanya bertugas merender UI berdasarkan state dari ViewModel:
-- Menggunakan **`collectAsState()`** untuk mengamati perubahan data secara real-time.
-- Menerapkan komponen reusable seperti `ProfileHeader`, `ProfileCard`, dan `InfoItem`.
+### 4. Offline First & UI States
+- **Offline First**: Aplikasi memprioritaskan data lokal. Semua data disimpan di SQLite, sehingga aplikasi tetap berfungsi penuh tanpa koneksi internet.
+- **Proper UI States**: Implementasi status antarmuka untuk pengalaman pengguna yang lebih baik:
+    - **Loading State**: Menampilkan indikator saat aplikasi sedang memproses atau memuat data.
+    - **Empty State**: Tampilan informatif jika belum ada catatan yang dibuat.
+    - **Content State**: Menampilkan daftar catatan dengan transisi yang halus saat data tersedia.
 
 ---
 
 ## Dokumentasi Visual
 
-| Light Mode | Dark Mode | Edit Mode |
+| Profile Screen | Sort Order | Searching |
 | :---: | :---: | :---: |
-| <img src="pict/lightmode.png" width="220"> | <img src="pict/darkmode.png" width="220"> | <img src="pict/editmode.png" width="220"> |
+| <img src="pict/profile.png" width="220"> | <img src="pict/SortOrder.png" width="220"> | <img src="pict/Searching.png" width="220"> |
+
+| Delete Notes | Edit Notes |
+| :---: | :---: |
+| <img src="pict/DeleteNotes.png" width="220"> | <img src="pict/EditNotes.png" width="220"> |
+
+---
+
+## Arsitektur & Teknologi
+
+- **Compose Multiplatform**: Framework UI untuk Android dan Desktop.
+- **SQLDelight**: Database lokal untuk Kotlin Multiplatform dengan validasi skema saat compile-time.
+- **Jetpack DataStore**: Solusi penyimpanan preferensi (Key-Value) yang modern dan asinkron.
+- **MVVM Architecture**: Pemisahan logika bisnis (ViewModel) dan tampilan (UI) untuk kode yang lebih modular.
+- **Kotlin Coroutines & Flow**: Pengelolaan data asinkron dan aliran data reaktif dari database ke UI.
 
 ---
 
 ## Cara Menjalankan
 
-1. **Persiapan Resource**: Pastikan file `Flowers.jpg` berada di folder `composeApp/src/commonMain/composeResources/drawable/`.
-2. **Sync Project**: Lakukan *Gradle Sync* di Android Studio.
-3. **Run**:
-   - Untuk Android: Pilih modul `composeApp` lalu klik **Run**.
-   - Untuk Desktop: Jalankan perintah `./gradlew :composeApp:run` di terminal.
+1. Buka proyek menggunakan **Android Studio** (versi Ladybug atau terbaru).
+2. Lakukan **Gradle Sync** untuk memastikan semua dependensi terunduh dengan benar.
+3. Jalankan aplikasi:
+   - **Android**: Pilih target emulator/device dan jalankan modul `:composeApp`.
+   - **Desktop**: Jalankan perintah `./gradlew :composeApp:run` melalui terminal Android Studio.
 
 **Disusun Oleh:** Miftahul Khoiriyah  
 **Jurusan:** Teknik Informatika - ITERA

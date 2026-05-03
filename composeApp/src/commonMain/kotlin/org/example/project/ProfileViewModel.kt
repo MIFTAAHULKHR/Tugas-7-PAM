@@ -1,10 +1,9 @@
 package org.example.project
 
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
 data class ProfileUiState(
     val name: String = "Miftahul Khoiriyah",
@@ -16,25 +15,38 @@ data class ProfileUiState(
     val isEditing: Boolean = false
 )
 
-class ProfileViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(ProfileUiState())
-    val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
+class ProfileViewModel(
+    private val settingsDataSource: SettingsDataSource
+) : ViewModel() {
+    private val _isEditing = MutableStateFlow(false)
+    
+    val uiState: StateFlow<ProfileUiState> = combine(
+        settingsDataSource.isDarkMode,
+        _isEditing
+    ) { isDarkMode, isEditing ->
+        ProfileUiState(
+            isDarkMode = isDarkMode,
+            isEditing = isEditing
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ProfileUiState()
+    )
 
     fun toggleDarkMode(enabled: Boolean) {
-        _uiState.update { it.copy(isDarkMode = enabled) }
+        viewModelScope.launch {
+            settingsDataSource.setDarkMode(enabled)
+        }
     }
 
     fun setEditing(editing: Boolean) {
-        _uiState.update { it.copy(isEditing = editing) }
+        _isEditing.value = editing
     }
 
     fun updateProfile(newName: String, newBio: String) {
-        _uiState.update { 
-            it.copy(
-                name = newName,
-                bio = newBio,
-                isEditing = false
-            )
-        }
+        // In a real app, you'd persist this too. 
+        // For now, we'll just stop editing.
+        _isEditing.value = false
     }
 }
