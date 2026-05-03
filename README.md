@@ -2,6 +2,8 @@
 
 Aplikasi manajemen catatan (Notes) modern yang dibangun menggunakan **Compose Multiplatform**. Proyek ini mengimplementasikan sistem penyimpanan data lokal yang efisien menggunakan **SQLDelight**, manajemen preferensi pengguna dengan **Jetpack DataStore**, serta penanganan status UI yang komprehensif dan mendukung prinsip *offline-first*.
 
+Link Video Demo [Demo Penggunaan](https://youtu.be/akvW3dRhSLg)
+
 ## Fitur Utama
 
 ### 1. Operasi CRUD (SQLDelight)
